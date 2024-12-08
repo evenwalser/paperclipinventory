@@ -1,52 +1,73 @@
 import { NextResponse } from 'next/server';
-import Together from 'together-js';
+import Together from 'together-ai';
 
-const together = new Together(process.env.TOGETHER_API_KEY || '');
+const together = new Together({ 
+  apiKey: process.env.TOGETHER_API_KEY || '' 
+});
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { image } = body;
+    const formData = await request.formData();
+    const imageFile = formData.get('image');
 
-    if (!image) {
-      return NextResponse.json(
-        { error: 'No image provided' },
-        { status: 400 }
-      );
+    if (!imageFile || !(imageFile instanceof Blob)) {
+      return NextResponse.json({ error: 'No valid image provided' }, { status: 400 });
     }
 
-    console.log('Processing image analysis request...');
+    // Convert image to base64
+    const imageBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(imageFile);
+    });
 
-    const result = await together.inference.invoke(
-      'togethercomputer/llama-2-70b-chat',
-      {
-        prompt: `
-          Analyze this product image and provide details in JSON format:
-          - title: A descriptive title
-          - description: A detailed description
-          - price_avg: Estimated price (number)
-          - category_id: Main category
-          - condition: Item condition
+    const completion = await together.chat.completions.create({
+      model: "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+      messages: [
+        {
+          role: "system",
+          content: "You are a product analyst. Analyze the image and provide details in JSON format."
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              url: imageBase64
+            }
+          ]
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
+    });
 
-          Image: ${image}
-        `,
-        max_tokens: 1000,
-        temperature: 0.7,
-        response_format: { type: "json_object" }
-      }
-    );
+    // Parse and validate response
+    const responseText = completion.choices[0]?.message?.content;
+    if (!responseText) {
+      throw new Error('No response from AI');
+    }
 
-    console.log('Together API response:', result);
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Invalid response format');
+    }
 
-    const parsedResult = JSON.parse(result.output.text);
-    
-    return NextResponse.json(parsedResult);
+    const result = JSON.parse(jsonMatch[0]);
+
+    // Validate required fields
+    if (!result.title || !result.description || !result.price_avg || !result.category_id) {
+      throw new Error('Missing required fields in response');
+    }
+
+    return NextResponse.json(result);
 
   } catch (error) {
     console.error('API Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to analyze image' },
-      { status: 500 }
-    );
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to analyze image' 
+    }, { status: 500 });
   }
 }

@@ -9,9 +9,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { Wand2, ChevronLeft, ChevronRight, X, GripVertical } from 'lucide-react'
+import { Wand2, ChevronLeft, ChevronRight, X, GripVertical, Upload } from 'lucide-react'
 import { motion, Reorder, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
+import { analyzeImage } from "@/lib/together"
 
 interface ItemType {
   id: string;
@@ -23,6 +24,27 @@ interface ItemType {
   subcategory2?: string;
   status: string;
   item_images?: { image_url: string }[];
+}
+
+interface ItemImage {
+  image_url: string;
+  display_order: number;
+}
+
+async function urlToBase64(url: string): Promise<string> {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('Error converting URL to base64:', error);
+    throw error;
+  }
 }
 
 export default function EditItemPage() {
@@ -53,6 +75,11 @@ export default function EditItemPage() {
   // Add this state to track selected thumbnails for deletion
   const [selectedThumbnail, setSelectedThumbnail] = useState<number | null>(null);
 
+  // Add state for AI processing
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const [isProcessingImages, setIsProcessingImages] = useState(false);
+
   useEffect(() => {
     const fetchItem = async () => {
       if (!params.id) return
@@ -77,9 +104,18 @@ export default function EditItemPage() {
       setItem(data)
       setIsLoading(false)
 
-      // Set images from item_images
+      // Convert Supabase URLs to base64
       if (data.item_images) {
-        setImages(data.item_images.map(img => img.image_url))
+        try {
+          const base64Images = await Promise.all(
+            data.item_images.map(async (img: ItemImage) => {
+              return await urlToBase64(img.image_url);
+            })
+          );
+          setImages(base64Images);
+        } catch (error) {
+          console.error('Error converting images to base64:', error);
+        }
       }
 
       // Pre-fill the form
@@ -100,65 +136,89 @@ export default function EditItemPage() {
     fetchItem()
   }, [params.id])
 
-  const handleOptimize = async () => {
-    setIsOptimizing(true)
+  const handleOptimizeWithAI = async () => {
+    if (!images.length) {
+      alert('Please add at least one image to analyze');
+      return;
+    }
+
+    setIsAnalyzing(true);
     try {
-      // Convert current image to File object
-      const response = await fetch(images[currentImageIndex])
-      const blob = await response.blob()
-      const file = new File([blob], 'image.jpg', { type: 'image/jpeg' })
+      const currentImage = images[currentImageIndex];
+      console.log('Starting AI analysis for image:', {
+        index: currentImageIndex,
+        type: typeof currentImage,
+        isBase64: currentImage.startsWith('data:'),
+      });
 
-      // Call AI analysis
-      const result = await analyzeImage(file)
-
-      // Update form with AI results
-      setItemDetails({
-        name: result.title,
-        description: result.description,
-        price: result.price_avg.toString(),
-        category: result.category_id
-      })
-
-      // Update categories if provided
-      if (result.category_id) {
-        setSelectedCategories({
-          level1: result.category_id,
-          level2: "",
-          level3: ""
-        })
-      }
+      const result = await analyzeImage(currentImage);
+      
+      // Update form with validated response
+      setItemDetails(prev => ({
+        ...prev,
+        name: result.title || prev.name,
+        description: result.description || prev.description,
+        price: result.price_avg?.toString() || prev.price,
+        category: result.category_id || prev.category
+      }));
 
       // Update condition if provided
       if (result.condition) {
-        setCondition(result.condition)
+        setSelectedCategories(prev => ({
+          ...prev,
+          level1: result.category_id
+        }));
       }
 
     } catch (error) {
-      console.error('AI analysis failed:', error)
-      alert('Failed to analyze image. Please try again or fill in details manually.')
+      console.error('AI analysis failed:', error);
+      alert('Failed to analyze image. Please try again.');
     } finally {
-      setIsOptimizing(false)
+      setIsAnalyzing(false);
     }
-  }
+  };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
 
-    // Process each file
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith('image/')) {
-        try {
-          const reader = new FileReader();
-          const imageDataUrl = await new Promise<string>((resolve) => {
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(file);
-          });
-          setImages(prev => [...prev, imageDataUrl]);
-        } catch (error) {
-          console.error('Error processing image:', error);
+    setIsProcessingImages(true);
+    try {
+      // Process each file sequentially
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) {
+          console.warn('Skipping non-image file:', file.name);
+          continue;
         }
+
+        // Convert to base64
+        const reader = new FileReader();
+        const imageDataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            } else {
+              reject(new Error('Failed to read file'));
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        // Add to images array
+        setImages(prev => [...prev, imageDataUrl]);
       }
+
+      // Clear input for next use
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+
+    } catch (error) {
+      console.error('Error processing images:', error);
+      alert('Failed to process images. Please try again.');
+    } finally {
+      setIsProcessingImages(false);
     }
   };
 
@@ -291,111 +351,114 @@ export default function EditItemPage() {
         <CardContent className="space-y-6">
           <div className="flex flex-col md:flex-row space-y-6 md:space-y-0 md:space-x-6">
             <div className="w-full md:w-1/3 space-y-4">
-              <div className="relative aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
-                <AnimatePresence mode="wait">
-                  <motion.img 
-                    key={images[currentImageIndex]}
-                    src={images[currentImageIndex]} 
-                    alt={item?.title || ""}
-                    className="w-full h-full object-contain"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.2 }}
-                  />
-                </AnimatePresence>
+              {/* Main Image Display */}
+              {images.length > 0 && (
+                <div className="space-y-4">
+                  {/* Current Image */}
+                  <div className="bg-black rounded-2xl overflow-hidden">
+                    <div className="aspect-[4/3] relative">
+                      <img
+                        src={images[currentImageIndex]}
+                        alt={`Image ${currentImageIndex + 1}`}
+                        className="w-full h-full object-contain"
+                      />
+                      
+                      {/* Navigation Arrows */}
+                      {images.length > 1 && (
+                        <div className="absolute inset-0 flex items-center justify-between p-4">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setCurrentImageIndex(prev => prev === 0 ? images.length - 1 : prev - 1)}
+                            className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 text-white"
+                          >
+                            <ChevronLeft className="h-6 w-6" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setCurrentImageIndex(prev => prev === images.length - 1 ? 0 : prev + 1)}
+                            className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 text-white"
+                          >
+                            <ChevronRight className="h-6 w-6" />
+                          </Button>
+                        </div>
+                      )}
 
-                {/* Navigation Arrows */}
-                {images.length > 1 && (
-                  <div className="absolute inset-0 flex items-center justify-between p-4">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => setCurrentImageIndex(prev => prev === 0 ? images.length - 1 : prev - 1)}
-                      className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 backdrop-blur-sm text-white"
-                    >
-                      <ChevronLeft className="h-6 w-6" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => setCurrentImageIndex(prev => prev === images.length - 1 ? 0 : prev + 1)}
-                      className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 backdrop-blur-sm text-white"
-                    >
-                      <ChevronRight className="h-6 w-6" />
-                    </Button>
+                      {/* Image Counter */}
+                      <div className="absolute top-4 right-4 bg-black/60 text-white px-3 py-1.5 rounded-full text-sm">
+                        {currentImageIndex + 1} / {images.length}
+                      </div>
+                    </div>
                   </div>
-                )}
 
-                {/* Image Counter */}
-                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-medium">
-                  {currentImageIndex + 1} / {images.length}
-                </div>
-              </div>
-
-              {/* Thumbnails */}
-              <div className="flex gap-2 overflow-x-auto py-2">
-                {images.map((image, index) => (
-                  <div
-                    key={image}
-                    className={cn(
-                      "relative w-20 h-20 rounded-md overflow-hidden flex-shrink-0 cursor-pointer border-2 transition-all duration-200",
-                      selectedThumbnail === index ? "border-red-500" : "border-transparent",
-                      "hover:border-gray-300"
-                    )}
-                    onClick={() => {
-                      setSelectedThumbnail(selectedThumbnail === index ? null : index);
-                      setCurrentImageIndex(index);
-                    }}
-                  >
-                    <img
-                      src={image}
-                      alt={`Thumbnail ${index + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                    {selectedThumbnail === index && (
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="absolute inset-0 bg-black/50 flex items-center justify-center"
-                      >
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteImage(index);
-                          }}
-                          className="text-white bg-red-500 hover:bg-red-600"
+                  {/* Thumbnails */}
+                  <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl p-4">
+                    <div className="flex gap-3 overflow-x-auto py-2 px-1">
+                      {images.map((image, index) => (
+                        <div
+                          key={index}
+                          onClick={() => setCurrentImageIndex(index)}
+                          className={`relative flex-shrink-0 cursor-pointer group
+                            ${index === currentImageIndex ? 'ring-2 ring-blue-500' : ''}`}
                         >
-                          Remove
-                        </Button>
-                      </motion.div>
-                    )}
+                          <div className="w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent 
+                                       hover:border-white/25 transition-all duration-200">
+                            <img
+                              src={image}
+                              alt={`Thumbnail ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 
+                                       group-hover:opacity-100 transition-opacity duration-200"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteImage(index);
+                              }}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
 
-              {/* File Input and Add Button */}
-              <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                accept="image/*"
-                multiple
-                onChange={handleFileChange}
-              />
-              <Button 
-                className="w-full bg-gray-100 text-gray-800 hover:bg-gray-200"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                + Add More Images
-                {images.length > 0 && (
-                  <span className="ml-2 text-sm text-gray-500">
-                    ({images.length})
-                  </span>
-                )}
-              </Button>
+              {/* File Input and Button */}
+              <div className="space-y-4">
+                <input 
+                  ref={fileInputRef}
+                  type="file" 
+                  accept="image/*" 
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+
+                <Button 
+                  variant="outline" 
+                  className="h-32 text-lg w-full"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isProcessingImages}
+                >
+                  {isProcessingImages ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin h-5 w-5 border-2 border-current border-t-transparent rounded-full" />
+                      <span>Processing...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 h-6 w-6" />
+                      Choose Photo
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
             <div className="w-full md:w-2/3 space-y-4">
               <div>
@@ -507,12 +570,21 @@ export default function EditItemPage() {
           </div>
           <div className="flex flex-col sm:flex-row justify-between space-y-4 sm:space-y-0 sm:space-x-4">
             <Button 
-              onClick={handleOptimize} 
-              disabled={isOptimizing}
-              className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white"
+              onClick={handleOptimizeWithAI}
+              className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white"
+              disabled={isAnalyzing || images.length === 0}
             >
-              <Wand2 className="mr-2 h-5 w-5" />
-              {isOptimizing ? 'Optimizing...' : 'Optimise listing with AI'}
+              {isAnalyzing ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/60 border-t-white" />
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-lg">🤖</span>
+                  <span>Optimise listing with AI</span>
+                </>
+              )}
             </Button>
             <Button 
               onClick={handleSave}
