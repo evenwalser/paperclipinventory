@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import Together from '@together/together-js';
+import Together from 'together-js';
 
-const together = new Together(process.env.TOGETHER_API_KEY);
+const together = new Together(process.env.TOGETHER_API_KEY || '');
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const { image } = await req.json();
+    const body = await request.json();
+    const { image } = body;
 
     if (!image) {
       return NextResponse.json(
@@ -14,39 +15,35 @@ export async function POST(req: Request) {
       );
     }
 
-    // Log the request
-    console.log('Received image analysis request');
+    console.log('Processing image analysis request...');
 
-    const prompt = `Analyze this product image and provide:
-      - A descriptive title
-      - A detailed description
-      - Estimated price range
-      - Category
-      - Condition assessment
-      Return as JSON with fields: title, description, price_avg, category_id, condition`;
+    const result = await together.inference.invoke(
+      'togethercomputer/llama-2-70b-chat',
+      {
+        prompt: `
+          Analyze this product image and provide details in JSON format:
+          - title: A descriptive title
+          - description: A detailed description
+          - price_avg: Estimated price (number)
+          - category_id: Main category
+          - condition: Item condition
 
-    const response = await together.complete({
-      prompt: prompt,
-      model: 'togethercomputer/llama-2-70b-chat',
-      max_tokens: 500,
-      temperature: 0.7,
-    });
+          Image: ${image}
+        `,
+        max_tokens: 1000,
+        temperature: 0.7,
+        response_format: { type: "json_object" }
+      }
+    );
 
-    // Log the AI response
-    console.log('AI Response:', response);
+    console.log('Together API response:', result);
 
-    // Parse and validate the response
-    let result;
-    try {
-      result = JSON.parse(response.output.text);
-    } catch (error) {
-      console.error('Failed to parse AI response:', error);
-      throw new Error('Invalid AI response format');
-    }
+    const parsedResult = JSON.parse(result.output.text);
+    
+    return NextResponse.json(parsedResult);
 
-    return NextResponse.json(result);
   } catch (error) {
-    console.error('Analysis error:', error);
+    console.error('API Error:', error);
     return NextResponse.json(
       { error: 'Failed to analyze image' },
       { status: 500 }

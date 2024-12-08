@@ -33,13 +33,12 @@ const base64ToFile = async (base64String: string): Promise<File> => {
 
 export default function AddItemPage() {
   const [images, setImages] = useState<string[]>([])
-  const [capturedImage, setCapturedImage] = useState<string | null>(null)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [isCameraActive, setIsCameraActive] = useState(false)
+  const [isStartingCamera, setIsStartingCamera] = useState(false)
+  const [isFlashing, setIsFlashing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [isCameraActive, setIsCameraActive] = useState(false)
-  const [stream, setStream] = useState<MediaStream | null>(null)
   const [selectedCategories, setSelectedCategories] = useState({
     level1: "",
     level2: "",
@@ -62,7 +61,6 @@ export default function AddItemPage() {
   const [availableInStore, setAvailableInStore] = useState(true)
   const [listOnPaperclip, setListOnPaperclip] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isFlashing, setIsFlashing] = useState(false)
 
   useEffect(() => {
     // Cleanup function
@@ -75,7 +73,20 @@ export default function AddItemPage() {
   }, []);
 
   const startCamera = async () => {
+    setIsStartingCamera(true)
     try {
+      // Set camera active first to ensure video element is rendered
+      setIsCameraActive(true);
+
+      // Small delay to ensure video element is mounted
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      if (!videoRef.current) {
+        console.error('Video element not found');
+        setIsCameraActive(false);
+        return;
+      }
+
       console.log('Starting camera...');
       const constraints = {
         video: {
@@ -89,40 +100,29 @@ export default function AddItemPage() {
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log('Got media stream:', mediaStream);
 
-      if (!videoRef.current) {
-        console.error('Video element not found');
-        return;
-      }
-
       videoRef.current.srcObject = mediaStream;
-      console.log('Set video source');
-
+      
       // Wait for video to be ready
       await new Promise((resolve) => {
         if (!videoRef.current) return;
         videoRef.current.onloadedmetadata = () => {
-          console.log('Video metadata loaded');
+          console.log('Video ready to play');
           resolve(true);
         };
       });
 
       await videoRef.current.play();
-      console.log('Video playing');
-      
-      setIsCameraActive(true);
-      setStream(mediaStream);
 
     } catch (error) {
       console.error('Camera error:', error);
+      setIsCameraActive(false);
       alert('Unable to access camera. Please make sure you have granted camera permissions.');
+    } finally {
+      setIsStartingCamera(false)
     }
   };
 
   const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop())
-      setStream(null)
-    }
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
@@ -180,9 +180,6 @@ export default function AddItemPage() {
       // Add to images array
       setImages(prev => [...prev, imageDataUrl]);
 
-      // Update current image index to show the new image
-      setCurrentImageIndex(prev => prev + 1);
-
       console.log('Photo captured successfully');
 
     } catch (error) {
@@ -192,7 +189,6 @@ export default function AddItemPage() {
   };
 
   const retakePhoto = () => {
-    setCapturedImage(null)
     startCamera()
   }
 
@@ -234,11 +230,11 @@ export default function AddItemPage() {
   };
 
   const usePhoto = async () => {
-    if (capturedImage) {
-      setImages(prev => [...prev, capturedImage]);
+    if (images.length > 0) {
+      const imageData = images[0];
+      setImages(prev => prev.slice(1));
       setCurrentImageIndex(images.length);
-      await analyzeImageWithAI(capturedImage);
-      setCapturedImage(null);
+      await analyzeImageWithAI(imageData);
     }
   };
 
@@ -503,278 +499,118 @@ export default function AddItemPage() {
           <div className="space-y-2">
             <Label htmlFor="image" className="text-base font-medium">Item Images</Label>
             
-            {/* Image Gallery */}
-            {images.length > 0 && (
-              <div className="relative w-full max-w-2xl mx-auto mb-8">
-                {/* Main Image */}
-                <div className="relative aspect-[4/3] rounded-xl overflow-hidden bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 shadow-lg">
-                  <AnimatePresence mode="wait">
-                    <motion.img 
-                      key={images[currentImageIndex]}
-                      src={images[currentImageIndex]} 
-                      alt={`Item image ${currentImageIndex + 1}`} 
-                      className="w-full h-full object-contain cursor-zoom-in"
-                      onClick={() => setLightboxImage(images[currentImageIndex])}
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      transition={{ duration: 0.2 }}
-                    />
-                  </AnimatePresence>
-                  
-                  {/* Image Counter */}
-                  <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 
-                                rounded-full text-sm font-medium flex items-center gap-2">
-                    <span>{currentImageIndex + 1}</span>
-                    <span className="text-white/60">/</span>
-                    <span>{images.length}</span>
-                  </div>
+            {/* Main Image Capture Container */}
+            <div className="w-full max-w-2xl mx-auto space-y-6">
+              {isCameraActive ? (
+                <div className="space-y-4">
+                  {/* Camera View */}
+                  <div className="bg-black rounded-2xl overflow-hidden">
+                    <div className="aspect-[4/3] relative">
+                      <video
+                        ref={videoRef}
+                        className="w-full h-full object-cover"
+                        playsInline
+                        muted
+                      />
+                      <canvas ref={canvasRef} className="hidden" />
 
-                  {/* Navigation Arrows */}
-                  <div className="absolute inset-0 flex items-center justify-between p-4">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={prevImage} 
-                      disabled={images.length <= 1}
-                      className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 backdrop-blur-sm text-white transition-all"
-                    >
-                      <ChevronLeft className="h-6 w-6" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={nextImage} 
-                      disabled={images.length <= 1}
-                      className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 backdrop-blur-sm text-white transition-all"
-                    >
-                      <ChevronRight className="h-6 w-6" />
-                    </Button>
-                  </div>
-                </div>
+                      {isFlashing && (
+                        <div className="absolute inset-0 bg-white z-50 animate-flash" />
+                      )}
 
-                {/* Thumbnails */}
-                <div className="mt-6 px-4">
-                  <div className="max-w-3xl mx-auto">
-                    <Reorder.Group 
-                      axis="x" 
-                      values={images} 
-                      onReorder={handleReorder}
-                      className="flex flex-wrap gap-4 justify-center"
-                    >
-                      {images.map((image, index) => (
-                        <Reorder.Item
-                          key={image}
-                          value={image}
-                          className="relative flex-shrink-0 group"
-                          whileDrag={{ scale: 1.1, zIndex: 50 }}
+                      {/* Capture Button */}
+                      <div className="absolute bottom-6 left-0 right-0 flex justify-center">
+                        <Button
+                          onClick={capturePhoto}
+                          className="w-16 h-16 rounded-full bg-white hover:bg-gray-100"
                         >
-                          <motion.div
-                            className={`
-                              relative w-24 h-24 rounded-xl overflow-hidden transition-all duration-200
-                              ${index === currentImageIndex 
-                                ? 'ring-2 ring-[#FF3B30] ring-offset-2 dark:ring-offset-gray-900 shadow-lg' 
-                                : 'hover:ring-2 hover:ring-gray-300 dark:hover:ring-gray-600 ring-offset-2 dark:ring-offset-gray-900'
-                              }
-                            `}
-                            whileHover={{ scale: 1.05, y: -4 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            {/* Thumbnail Image */}
-                            <motion.img
-                              src={image}
-                              alt={`Thumbnail ${index + 1}`}
-                              className="w-full h-full object-cover"
-                              layoutId={`image-${image}`}
-                              onClick={() => setCurrentImageIndex(index)}
-                            />
-
-                            {/* Gradient Overlay */}
-                            <div className={`
-                              absolute inset-0 bg-gradient-to-t from-black/50 to-transparent
-                              transition-opacity duration-200
-                              ${index === currentImageIndex ? 'opacity-60' : 'opacity-0 group-hover:opacity-40'}
-                            `} />
-
-                            {/* Thumbnail Number */}
-                            <div className="absolute bottom-2 left-2 text-white text-sm font-medium">
-                              {index + 1}
-                            </div>
-
-                            {/* Delete Button */}
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="icon"
-                              className="absolute -top-2 -right-2 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 
-                                        transition-all duration-200 shadow-lg transform translate-y-2 group-hover:translate-y-0"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                removeImage(index)
-                              }}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-
-                            {/* Selected Indicator */}
-                            {index === currentImageIndex && (
-                              <motion.div
-                                className="absolute bottom-0 left-0 right-0 h-1 bg-[#FF3B30]"
-                                layoutId="selectedIndicator"
-                              />
-                            )}
-                          </motion.div>
-                        </Reorder.Item>
-                      ))}
-                    </Reorder.Group>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Simple Camera Section */}
-            <div className="w-full max-w-2xl mx-auto">
-              {/* Camera Card */}
-              <div className="bg-black rounded-2xl overflow-hidden">
-                {/* Camera View */}
-                <div className="aspect-[4/3] relative">
-                  <video
-                    ref={videoRef}
-                    className="w-full h-full object-cover"
-                    playsInline
-                    muted
-                  />
-                  <canvas ref={canvasRef} className="hidden" />
-
-                  {/* Flash Effect */}
-                  {isFlashing && (
-                    <div className="absolute inset-0 bg-white z-50 animate-flash" />
-                  )}
-
-                  {/* Simple Capture Button */}
-                  <div className="absolute bottom-6 left-0 right-0 flex justify-center">
-                    <Button
-                      onClick={capturePhoto}
-                      className="w-16 h-16 rounded-full bg-white"
-                    >
-                      <div className="w-12 h-12 rounded-full border-4 border-black" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Simple Thumbnails Strip */}
-              <div className="mt-4 flex gap-2 overflow-x-auto p-2">
-                {images.map((image, index) => (
-                  <div
-                    key={index}
-                    className="relative w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden"
-                  >
-                    <img
-                      src={image}
-                      alt={`Capture ${index + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-1 right-1 h-5 w-5 rounded-full"
-                      onClick={() => removeImage(index)}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Captured Image Preview */}
-            {capturedImage && (
-              <div className="relative w-full max-w-2xl mx-auto rounded-2xl overflow-hidden bg-gray-900 shadow-xl">
-                <div className="aspect-[4/3] relative">
-                  <img 
-                    src={capturedImage} 
-                    alt="Captured item" 
-                    className="w-full h-full object-contain"
-                  />
-                  
-                  {/* Controls Overlay */}
-                  <div className="absolute bottom-0 inset-x-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
-                    <div className="flex items-center justify-center gap-4">
-                      <Button 
-                        variant="outline"
-                        size="lg"
-                        onClick={retakePhoto}
-                        className="text-white border-white/20 hover:bg-white/20 transition-colors"
-                      >
-                        <RotateCcw className="mr-2 h-5 w-5" />
-                        Retake
-                      </Button>
-                      
-                      <Button 
-                        size="lg"
-                        onClick={usePhoto}
-                        className="bg-green-500 hover:bg-green-600 text-white transition-colors"
-                      >
-                        <Check className="mr-2 h-5 w-5" />
-                        Use Photo
-                      </Button>
+                          <div className="w-12 h-12 rounded-full border-4 border-black" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* Upload Buttons */}
-            {!capturedImage && !isCameraActive && (
-              <div
-                ref={dropZoneRef}
-                onDragEnter={handleDragEnter}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={`relative grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-lg border-2 border-dashed transition-colors
-                  ${isDragging 
-                    ? 'border-[#FF3B30] bg-red-50 dark:bg-red-900/10' 
-                    : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                  }`}
-              >
-                {isDragging && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/5 rounded-lg">
-                    <p className="text-lg font-medium">Drop images here</p>
+                  {/* Thumbnails */}
+                  <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl p-4">
+                    {images.length > 0 ? (
+                      <div className="flex gap-3 overflow-x-auto py-2 px-1">
+                        {images.map((image, index) => (
+                          <div key={index} className="relative flex-shrink-0 group">
+                            <div className="w-20 h-20 rounded-lg overflow-hidden">
+                              <img
+                                src={image}
+                                alt={`Capture ${index + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100"
+                                onClick={() => removeImage(index)}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-400">
+                        <p>Captured photos will appear here</p>
+                      </div>
+                    )}
                   </div>
-                )}
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  className="h-32 text-lg"
-                  onClick={startCamera}
-                >
-                  <Camera className="mr-2 h-6 w-6" />
-                  Take Photo
-                </Button>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  className="h-32 text-lg"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="mr-2 h-6 w-6" />
-                  Choose Photo
-                </Button>
-              </div>
-            )}
 
-            <input 
-              ref={fileInputRef}
-              id="image-upload" 
-              type="file" 
-              accept="image/*" 
-              capture="environment"
-              className="hidden" 
-              onChange={handleFileChange}
-              multiple  // Allow multiple file selection
-            />
+                  {/* Done Button */}
+                  <Button 
+                    onClick={() => setIsCameraActive(false)}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    Done
+                  </Button>
+                </div>
+              ) : (
+                /* Upload Buttons */
+                <div className="grid grid-cols-2 gap-4">
+                  <Button 
+                    variant="outline" 
+                    className="h-32 text-lg"
+                    onClick={startCamera}
+                    disabled={isStartingCamera}
+                  >
+                    {isStartingCamera ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin h-5 w-5 border-2 border-current border-t-transparent rounded-full" />
+                        <span>Starting Camera...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <Camera className="mr-2 h-6 w-6" />
+                        Take Photo
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="h-32 text-lg"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="mr-2 h-6 w-6" />
+                    Choose Photo
+                  </Button>
+                </div>
+              )}
+
+              <input 
+                ref={fileInputRef}
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                onChange={handleFileChange}
+                multiple
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="name">Item Name</Label>
