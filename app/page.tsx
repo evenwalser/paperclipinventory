@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -5,14 +7,35 @@ import { Overview } from "@/components/Overview"
 import { RecentSales } from "@/components/RecentSales"
 import { CalendarDateRangePicker } from "@/components/date-range-picker"
 import { Package, PoundSterling, Users, Activity, PlusCircle, ShoppingCart, RotateCcw } from 'lucide-react'
+import { testSupabaseConnection } from '@/lib/supabase'
+import { useEffect, useState } from 'react'
+import { addDays } from 'date-fns'
+import { DateRange } from 'react-day-picker'
 
 export default function DashboardPage() {
+  const [date, setDate] = useState<DateRange | undefined>({
+    from: new Date(),
+    to: addDays(new Date(), 7),
+  })
+
+  useEffect(() => {
+    testSupabaseConnection()
+      .then(isConnected => {
+        if (!isConnected) {
+          console.error('Failed to connect to Supabase')
+        }
+      })
+  }, [])
+
   return (
     <div className="flex-1 space-y-8 p-8 pt-6">
       <div className="flex items-center justify-between space-y-2">
         <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
         <div className="flex items-center space-x-2">
-          <CalendarDateRangePicker />
+          <CalendarDateRangePicker 
+            date={date}
+            onDateChange={setDate}
+          />
           <Button className="bg-[#FF3B30] hover:bg-[#E6352B] text-white">View All</Button>
         </div>
       </div>

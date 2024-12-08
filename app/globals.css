@@ -138,3 +138,13 @@ h1, h2, h3, h4, h5, h6 {
   background-color: var(--rdp-background-color-dark);
 }
 
+@keyframes flash {
+  0% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.animate-flash {
+  animation: flash 150ms ease-out;
+}
+

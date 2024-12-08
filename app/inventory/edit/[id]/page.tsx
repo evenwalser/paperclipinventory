@@ -1,41 +1,104 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useRef } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { Wand2 } from 'lucide-react'
+import { Wand2, ChevronLeft, ChevronRight, X, GripVertical } from 'lucide-react'
+import { motion, Reorder, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
-import { GripVertical } from "lucide-react"
-import { X } from "lucide-react"
-import { motion, Reorder } from "framer-motion"
-import { ChevronLeft, ChevronRight } from "lucide-react"
-import { AnimatePresence } from "framer-motion"
 
-// Mock data for a single item
-const item = {
-  id: 1,
-  name: "Vintage Denim Jacket",
-  description: "A classic denim jacket from the 90s. Great condition with slight distressing for an authentic vintage look.",
-  price: 89.99,
-  category: "Clothing",
-  subcategory1: "Outerwear",
-  subcategory2: "Jackets",
-  stock: "In Stock",
-  image: "/placeholder.svg?height=400&width=400"
+interface ItemType {
+  id: string;
+  title: string;
+  description: string;
+  price: number;
+  category: string;
+  subcategory1?: string;
+  subcategory2?: string;
+  status: string;
+  item_images?: { image_url: string }[];
 }
 
-export default function EditItemPage({ params }: { params: { id: string } }) {
+export default function EditItemPage() {
+  const params = useParams()
   const router = useRouter()
+  const [item, setItem] = useState<ItemType | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [isOptimizing, setIsOptimizing] = useState(false)
-  const [selectedImage, setSelectedImage] = useState(item.image)
-  const [images, setImages] = useState<string[]>([selectedImage])
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [images, setImages] = useState<string[]>([])
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+
+  const [itemDetails, setItemDetails] = useState({
+    name: '',
+    description: '',
+    price: '',
+    category: ''
+  });
+
+  const [selectedCategories, setSelectedCategories] = useState({
+    level1: '',
+    level2: '',
+    level3: ''
+  });
+
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Add this state to track selected thumbnails for deletion
+  const [selectedThumbnail, setSelectedThumbnail] = useState<number | null>(null);
+
+  useEffect(() => {
+    const fetchItem = async () => {
+      if (!params.id) return
+
+      const { data, error } = await supabase
+        .from('items')
+        .select(`
+          *,
+          item_images (
+            image_url,
+            display_order
+          )
+        `)
+        .eq('id', params.id)
+        .single()
+
+      if (error) {
+        console.error('Error fetching item:', error)
+        return
+      }
+
+      setItem(data)
+      setIsLoading(false)
+
+      // Set images from item_images
+      if (data.item_images) {
+        setImages(data.item_images.map(img => img.image_url))
+      }
+
+      // Pre-fill the form
+      setItemDetails({
+        name: data.title || '',
+        description: data.description || '',
+        price: data.price?.toString() || '',
+        category: data.category || ''
+      })
+
+      setSelectedCategories({
+        level1: data.category || '',
+        level2: data.subcategory1 || '',
+        level3: data.subcategory2 || ''
+      })
+    }
+
+    fetchItem()
+  }, [params.id])
 
   const handleOptimize = async () => {
     setIsOptimizing(true)
@@ -79,55 +142,137 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files) return
+    const files = event.target.files;
+    if (!files) return;
 
-    const newImages: string[] = []
-    
-    // Convert FileList to Array for iteration
-    Array.from(files).forEach(async (file) => {
+    // Process each file
+    for (const file of Array.from(files)) {
       if (file.type.startsWith('image/')) {
         try {
-          const reader = new FileReader()
+          const reader = new FileReader();
           const imageDataUrl = await new Promise<string>((resolve) => {
-            reader.onload = () => resolve(reader.result as string)
-            reader.readAsDataURL(file)
-          })
-          newImages.push(imageDataUrl)
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(file);
+          });
+          setImages(prev => [...prev, imageDataUrl]);
         } catch (error) {
-          console.error('Error processing image:', error)
+          console.error('Error processing image:', error);
         }
       }
-    })
+    }
+  };
 
-    setImages(prev => [...prev, ...newImages])
-    setCurrentImageIndex(images.length) // Show the newly added image
-  }
+  const handleDeleteImage = async (indexToDelete: number) => {
+    if (!item?.id) return;
 
-  const handleDeleteImage = (indexToDelete: number) => {
-    setImages(prev => {
-      const newImages = prev.filter((_, index) => index !== indexToDelete)
-      // Adjust currentImageIndex if needed
-      if (currentImageIndex >= indexToDelete && currentImageIndex > 0) {
-        setCurrentImageIndex(currentImageIndex - 1)
+    try {
+      // Get the image URL that's being deleted
+      const imageToDelete = images[indexToDelete];
+
+      // Remove from database if it's an existing image
+      if (imageToDelete.startsWith('http')) {
+        const { error } = await supabase
+          .from('item_images')
+          .delete()
+          .match({
+            item_id: item.id,
+            display_order: indexToDelete
+          });
+
+        if (error) {
+          console.error('Database deletion error:', error);
+          throw error;
+        }
+
+        // Fetch updated images from database to ensure sync
+        const { data: updatedImages, error: fetchError } = await supabase
+          .from('item_images')
+          .select('image_url, display_order')
+          .eq('item_id', item.id)
+          .order('display_order');
+
+        if (fetchError) {
+          console.error('Error fetching updated images:', fetchError);
+          throw fetchError;
+        }
+
+        // Update local state with fresh data
+        setImages(updatedImages.map(img => img.image_url));
+      } else {
+        // For new images that aren't in the database yet
+        setImages(prev => prev.filter((_, index) => index !== indexToDelete));
       }
-      return newImages
-    })
-  }
 
-  // Add state for form values
-  const [itemDetails, setItemDetails] = useState({
-    name: item.name,
-    description: item.description,
-    price: item.price.toString(),
-    category: item.category
-  })
+      // Adjust current image index
+      if (currentImageIndex >= images.length - 1) {
+        setCurrentImageIndex(Math.max(0, images.length - 2));
+      } else if (currentImageIndex > indexToDelete) {
+        setCurrentImageIndex(currentImageIndex - 1);
+      }
 
-  const [selectedCategories, setSelectedCategories] = useState({
-    level1: item.category,
-    level2: item.subcategory1,
-    level3: item.subcategory2
-  })
+      // Clear selection
+      setSelectedThumbnail(null);
+
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      alert('Failed to delete image. Please try again.');
+    }
+  };
+
+  const handleSave = async () => {
+    if (!item?.id) return;
+    
+    setIsSaving(true);
+    
+    try {
+      // First update the item details
+      const { error: itemError } = await supabase
+        .from('items')
+        .update({
+          title: itemDetails.name,
+          description: itemDetails.description,
+          price: parseFloat(itemDetails.price),
+          category: selectedCategories.level1,
+          subcategory1: selectedCategories.level2,
+          subcategory2: selectedCategories.level3,
+          status: item.status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', item.id);
+
+      if (itemError) throw itemError;
+
+      // Then handle images
+      // First, delete all existing image records
+      const { error: deleteError } = await supabase
+        .from('item_images')
+        .delete()
+        .eq('item_id', item.id);
+
+      if (deleteError) throw deleteError;
+
+      // Then create new image records
+      const imagePromises = images.map((imageUrl, index) => {
+        return supabase
+          .from('item_images')
+          .insert({
+            item_id: item.id,
+            image_url: imageUrl,
+            display_order: index
+          });
+      });
+
+      await Promise.all(imagePromises);
+
+      // Redirect back to inventory
+      router.push('/inventory');
+    } catch (error) {
+      console.error('Error saving changes:', error);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 sm:space-y-8">
@@ -151,7 +296,7 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
                   <motion.img 
                     key={images[currentImageIndex]}
                     src={images[currentImageIndex]} 
-                    alt={item.name}
+                    alt={item?.title || ""}
                     className="w-full h-full object-contain"
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -166,11 +311,7 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      onClick={() => {
-                        setCurrentImageIndex(prev => 
-                          prev === 0 ? images.length - 1 : prev - 1
-                        )
-                      }}
+                      onClick={() => setCurrentImageIndex(prev => prev === 0 ? images.length - 1 : prev - 1)}
                       className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 backdrop-blur-sm text-white"
                     >
                       <ChevronLeft className="h-6 w-6" />
@@ -178,11 +319,7 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      onClick={() => {
-                        setCurrentImageIndex(prev => 
-                          prev === images.length - 1 ? 0 : prev + 1
-                        )
-                      }}
+                      onClick={() => setCurrentImageIndex(prev => prev === images.length - 1 ? 0 : prev + 1)}
                       className="h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 backdrop-blur-sm text-white"
                     >
                       <ChevronRight className="h-6 w-6" />
@@ -191,85 +328,74 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
                 )}
 
                 {/* Image Counter */}
-                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 
-                                rounded-full text-sm font-medium">
+                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-sm font-medium">
                   {currentImageIndex + 1} / {images.length}
                 </div>
               </div>
 
-              {images.length > 1 && (
-                <Reorder.Group 
-                  axis="x" 
-                  values={images} 
-                  onReorder={setImages}
-                  className="flex gap-2 overflow-x-auto py-2"
-                >
-                  {images.map((image, index) => (
-                    <Reorder.Item
-                      key={image}
-                      value={image}
-                      className="relative"
-                    >
+              {/* Thumbnails */}
+              <div className="flex gap-2 overflow-x-auto py-2">
+                {images.map((image, index) => (
+                  <div
+                    key={image}
+                    className={cn(
+                      "relative w-20 h-20 rounded-md overflow-hidden flex-shrink-0 cursor-pointer border-2 transition-all duration-200",
+                      selectedThumbnail === index ? "border-red-500" : "border-transparent",
+                      "hover:border-gray-300"
+                    )}
+                    onClick={() => {
+                      setSelectedThumbnail(selectedThumbnail === index ? null : index);
+                      setCurrentImageIndex(index);
+                    }}
+                  >
+                    <img
+                      src={image}
+                      alt={`Thumbnail ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    {selectedThumbnail === index && (
                       <motion.div
-                        className={cn(
-                          "group relative w-16 h-16 rounded-md overflow-hidden flex-shrink-0 cursor-move",
-                          currentImageIndex === index && "ring-2 ring-blue-500"
-                        )}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="absolute inset-0 bg-black/50 flex items-center justify-center"
                       >
-                        <img
-                          src={image}
-                          alt={`Thumbnail ${index + 1}`}
-                          className="w-full h-full object-cover"
-                          onClick={() => setCurrentImageIndex(index)}
-                        />
-                        
-                        {/* Delete button */}
-                        <button
+                        <Button
+                          variant="destructive"
+                          size="sm"
                           onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteImage(index)
+                            e.stopPropagation();
+                            handleDeleteImage(index);
                           }}
-                          className="absolute top-0 right-0 p-1 bg-red-500 text-white rounded-bl-md 
-                                 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="text-white bg-red-500 hover:bg-red-600"
                         >
-                          <X className="h-3 w-3" />
-                        </button>
-
-                        {/* Drag handle */}
-                        <div className="absolute bottom-0 left-0 right-0 h-6 bg-black/50 
-                                      flex items-center justify-center opacity-0 group-hover:opacity-100 
-                                      transition-opacity">
-                          <GripVertical className="h-4 w-4 text-white" />
-                        </div>
-
-                        {/* Selected indicator */}
-                        {currentImageIndex === index && (
-                          <motion.div
-                            className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500"
-                            layoutId="selectedIndicator"
-                          />
-                        )}
+                          Remove
+                        </Button>
                       </motion.div>
-                    </Reorder.Item>
-                  ))}
-                </Reorder.Group>
-              )}
-
-              <div className="flex space-x-2">
-                <Button 
-                  className="flex-1 bg-gray-100 text-gray-800 hover:bg-gray-200"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  + Add More Images
-                  {images.length > 0 && (
-                    <span className="ml-2 text-sm text-gray-500">
-                      ({images.length} images)
-                    </span>
-                  )}
-                </Button>
+                    )}
+                  </div>
+                ))}
               </div>
+
+              {/* File Input and Add Button */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                multiple
+                onChange={handleFileChange}
+              />
+              <Button 
+                className="w-full bg-gray-100 text-gray-800 hover:bg-gray-200"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                + Add More Images
+                {images.length > 0 && (
+                  <span className="ml-2 text-sm text-gray-500">
+                    ({images.length})
+                  </span>
+                )}
+              </Button>
             </div>
             <div className="w-full md:w-2/3 space-y-4">
               <div>
@@ -297,16 +423,30 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
               <div className="w-full space-y-4">
                 <div>
                   <Label htmlFor="price">Price</Label>
-                  <Input id="price" type="number" value={itemDetails.price} />
+                  <Input 
+                    id="price" 
+                    type="number" 
+                    value={itemDetails.price}
+                    onChange={(e) => setItemDetails(prev => ({
+                      ...prev,
+                      price: e.target.value
+                    }))}
+                  />
                 </div>
                 <div className="w-full space-y-4">
                   <div>
                     <Label htmlFor="category">Main Category</Label>
-                    <Select defaultValue={itemDetails.category}>
+                    <Select 
+                      value={selectedCategories.level1}
+                      onValueChange={(value) => setSelectedCategories(prev => ({
+                        ...prev,
+                        level1: value
+                      }))}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-lg">
+                      <SelectContent>
                         <SelectItem value="Clothing">Clothing</SelectItem>
                         <SelectItem value="Home Decor">Home Decor</SelectItem>
                         <SelectItem value="Electronics">Electronics</SelectItem>
@@ -346,14 +486,20 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
               </div>
               <div>
                 <Label htmlFor="stock">Stock Status</Label>
-                <Select defaultValue={item.stock}>
+                <Select 
+                  value={item?.status || "available"}
+                  onValueChange={(value) => setItem(prev => prev ? {
+                    ...prev,
+                    status: value
+                  } : null)}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
-                  <SelectContent className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-lg">
-                    <SelectItem value="In Stock">In Stock</SelectItem>
-                    <SelectItem value="Low Stock">Low Stock</SelectItem>
-                    <SelectItem value="Out of Stock">Out of Stock</SelectItem>
+                  <SelectContent>
+                    <SelectItem value="available">In Stock</SelectItem>
+                    <SelectItem value="low_stock">Low Stock</SelectItem>
+                    <SelectItem value="out_of_stock">Out of Stock</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -368,8 +514,24 @@ export default function EditItemPage({ params }: { params: { id: string } }) {
               <Wand2 className="mr-2 h-5 w-5" />
               {isOptimizing ? 'Optimizing...' : 'Optimise listing with AI'}
             </Button>
-            <Button className="w-full sm:w-auto bg-blue-500 hover:bg-blue-600 text-white">
-              Save Changes
+            <Button 
+              onClick={handleSave}
+              disabled={isSaving}
+              className={cn(
+                "w-full sm:w-auto text-white transition-colors",
+                isSaving 
+                  ? "bg-green-500 hover:bg-green-600" 
+                  : "bg-blue-500 hover:bg-blue-600"
+              )}
+            >
+              {isSaving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/60 border-t-white mr-2" />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
             </Button>
           </div>
         </CardContent>

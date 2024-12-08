@@ -3,26 +3,31 @@
 import { createContext, useContext, useState, ReactNode } from 'react'
 
 interface CartItem {
-  id: number
-  name: string
-  price: number
-  quantity: number
-  image: string
-  category: string
-  stock: string
+  id: string;
+  title: string;
+  price: number;
+  image_url?: string;
+  category: string;
+  size?: string;
+  quantity: number;
 }
 
-interface CartContextType {
-  items: CartItem[]
-  addItem: (item: Omit<CartItem, 'quantity'>) => void
-  addItems: (items: Omit<CartItem, 'quantity'>[]) => void
-  removeItem: (id: number) => void
-  updateQuantity: (id: number, change: number) => void
-  clearCart: () => void
-  total: number
-}
+const CartContext = createContext<{
+  items: CartItem[];
+  addItems: (items: Omit<CartItem, 'quantity'>[]) => void;
+  removeItem: (id: string) => void;
+  updateQuantity: (id: string, quantity: number) => void;
+  clearCart: () => void;
+  total: number;
+} | undefined>(undefined);
 
-const CartContext = createContext<CartContextType | undefined>(undefined)
+export function useCart() {
+  const context = useContext(CartContext)
+  if (!context) {
+    throw new Error('useCart must be used within a CartProvider')
+  }
+  return context
+}
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([])
@@ -54,20 +59,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  const removeItem = (id: number) => {
+  const removeItem = (id: string) => {
     setItems(currentItems => currentItems.filter(item => item.id !== id))
   }
 
-  const updateQuantity = (id: number, change: number) => {
+  const updateQuantity = (id: string, newQuantity: number) => {
     setItems(currentItems => {
       return currentItems.map(item => {
         if (item.id === id) {
-          const newQuantity = item.quantity + change
-          return newQuantity > 0 ? { ...item, quantity: newQuantity } : null
+          return { ...item, quantity: Math.max(1, newQuantity) };
         }
-        return item
-      }).filter((item): item is CartItem => item !== null)
-    })
+        return item;
+      });
+    });
   }
 
   const clearCart = () => {
@@ -89,12 +93,4 @@ export function CartProvider({ children }: { children: ReactNode }) {
       {children}
     </CartContext.Provider>
   )
-}
-
-export function useCart() {
-  const context = useContext(CartContext)
-  if (context === undefined) {
-    throw new Error('useCart must be used within a CartProvider')
-  }
-  return context
 } 

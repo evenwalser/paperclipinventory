@@ -2,6 +2,10 @@
 
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts"
 
+interface OverviewProps {
+  currency: string;
+}
+
 const data = [
   {
     name: "Jan",
@@ -53,7 +57,7 @@ const data = [
   },
 ]
 
-export function Overview() {
+export function Overview({ currency }: OverviewProps) {
   return (
     <ResponsiveContainer width="100%" height={350}>
       <BarChart data={data}>

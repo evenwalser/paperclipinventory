@@ -1,7 +1,8 @@
 export interface User {
-  id: number;
+  id: string;
   username: string;
   email: string;
+  password_hash: string;
   profile_image?: string;
   role: 'admin' | 'staff';
 }
@@ -32,32 +33,42 @@ export interface ItemImage {
 }
 
 export interface Transaction {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   total_amount: number;
   transaction_date: string;
   status: 'completed' | 'refunded';
 }
 
 export interface TransactionItem {
-  id: number;
-  transaction_id: number;
-  item_id: number;
+  id: string;
+  transaction_id: string;
+  item_id: string;
   quantity: number;
   price: number;
 }
 
 export interface Notification {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   message: string;
   read: boolean;
   created_at: string;
 }
 
+export interface SalesSummary {
+  id: string;
+  category: string;
+  total_sales: number;
+  total_customers: number;
+  total_inventory: number;
+  sales_velocity: number;
+  date_range: string;
+}
+
 export interface Settings {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   store_profile: {
     name?: string;
     description?: string;
@@ -88,14 +99,4 @@ export interface Settings {
     payment_gateway?: string;
     ai_assistance?: boolean;
   };
-}
-
-export interface SalesSummary {
-  id: number;
-  category: string;
-  total_sales: number;
-  total_customers: number;
-  total_inventory: number;
-  sales_velocity: number;
-  date_range: string;
 } 

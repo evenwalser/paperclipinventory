@@ -39,6 +39,7 @@ export default function AddItemPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isCameraActive, setIsCameraActive] = useState(false)
+  const [stream, setStream] = useState<MediaStream | null>(null)
   const [selectedCategories, setSelectedCategories] = useState({
     level1: "",
     level2: "",
@@ -61,6 +62,7 @@ export default function AddItemPage() {
   const [availableInStore, setAvailableInStore] = useState(true)
   const [listOnPaperclip, setListOnPaperclip] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isFlashing, setIsFlashing] = useState(false)
 
   useEffect(() => {
     // Cleanup function
@@ -73,71 +75,66 @@ export default function AddItemPage() {
   }, []);
 
   const startCamera = async () => {
-    console.log('Starting camera...');
-    
     try {
-      // First, check if we already have an active stream and clean it up
-      if (videoRef.current?.srcObject) {
-        const oldStream = videoRef.current.srcObject as MediaStream;
-        oldStream.getTracks().forEach(track => track.stop());
-      }
-
-      // Safari-specific constraints
+      console.log('Starting camera...');
       const constraints = {
         video: {
-          facingMode: 'environment',
           width: { ideal: 1280 },
-          height: { ideal: 720 }
+          height: { ideal: 720 },
+          facingMode: 'environment'
         },
         audio: false
       };
-
-      console.log('Requesting camera with constraints:', constraints);
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      console.log('Got stream:', stream);
+      
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Got media stream:', mediaStream);
 
       if (!videoRef.current) {
-        console.error('Video ref is null');
+        console.error('Video element not found');
         return;
       }
 
-      // Reset video element
-      videoRef.current.srcObject = null;
+      videoRef.current.srcObject = mediaStream;
+      console.log('Set video source');
+
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        if (!videoRef.current) return;
+        videoRef.current.onloadedmetadata = () => {
+          console.log('Video metadata loaded');
+          resolve(true);
+        };
+      });
+
+      await videoRef.current.play();
+      console.log('Video playing');
       
-      // Set attributes before assigning stream
-      videoRef.current.setAttribute('autoplay', '');
-      videoRef.current.setAttribute('playsinline', '');
-      videoRef.current.setAttribute('muted', '');
-      videoRef.current.muted = true; // Explicitly set muted
+      setIsCameraActive(true);
+      setStream(mediaStream);
 
-      // Assign stream
-      videoRef.current.srcObject = stream;
-
-      // Wait for metadata to be loaded before playing
-      videoRef.current.onloadedmetadata = async () => {
-        console.log('Video metadata loaded');
-        try {
-          await videoRef.current?.play();
-          console.log('Video playing');
-          setIsCameraActive(true);
-          setNeedsUserGesture(false);
-        } catch (playError) {
-          console.error('Play failed:', playError);
-          setNeedsUserGesture(true);
-        }
-      };
-
-    } catch (err) {
-      console.error('Camera error:', err);
-      if (err instanceof Error) {
-        if (err.name === 'NotAllowedError') {
-          alert('Camera access was denied. Please allow camera access and try again.');
-        } else {
-          alert(`Camera error: ${err.message}`);
-        }
-      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      alert('Unable to access camera. Please make sure you have granted camera permissions.');
     }
   };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop())
+      setStream(null)
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    setIsCameraActive(false)
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera()
+    }
+  }, [])
 
   const handleManualPlay = async () => {
     if (videoRef.current) {
@@ -150,32 +147,49 @@ export default function AddItemPage() {
     }
   };
 
-  const stopCamera = () => {
-    if (!videoRef.current?.srcObject) return;
+  const capturePhoto = async () => {
+    if (!videoRef.current || !canvasRef.current) {
+      console.error('Video or canvas ref not available');
+      return;
+    }
+
+    // Flash effect
+    setIsFlashing(true);
+    setTimeout(() => setIsFlashing(false), 150);
 
     try {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-      setIsCameraActive(false);
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      if (!context) {
+        console.error('Could not get canvas context');
+        return;
+      }
+
+      // Set canvas size to match video dimensions
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      // Draw the current video frame
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Get the image data
+      const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+      // Add to images array
+      setImages(prev => [...prev, imageDataUrl]);
+
+      // Update current image index to show the new image
+      setCurrentImageIndex(prev => prev + 1);
+
+      console.log('Photo captured successfully');
+
     } catch (error) {
-      console.error('Error stopping camera:', error);
+      console.error('Error capturing photo:', error);
+      alert('Failed to capture photo. Please try again.');
     }
   };
-
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d')
-      if (context) {
-        canvasRef.current.width = videoRef.current.videoWidth
-        canvasRef.current.height = videoRef.current.videoHeight
-        context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height)
-        const imageDataUrl = canvasRef.current.toDataURL('image/jpeg')
-        setCapturedImage(imageDataUrl)
-        stopCamera()
-      }
-    }
-  }
 
   const retakePhoto = () => {
     setCapturedImage(null)
@@ -369,6 +383,42 @@ export default function AddItemPage() {
     
     setImages(newOrder);
     setCurrentImageIndex(newIndex);
+  };
+
+  const handleAIAnalysis = async (imageFile: File) => {
+    setIsAnalyzing(true);
+    try {
+      console.log('Starting AI analysis...');
+      const result = await analyzeImage(imageFile);
+      console.log('AI analysis result:', result);
+
+      // Update form with AI results
+      setItemDetails({
+        name: result.title || itemDetails.name,
+        description: result.description || itemDetails.description,
+        price: result.price_avg?.toString() || itemDetails.price,
+        category: result.category_id || itemDetails.category
+      });
+
+      if (result.category_id) {
+        setSelectedCategories(prev => ({
+          ...prev,
+          level1: result.category_id,
+          level2: '',
+          level3: ''
+        }));
+      }
+
+      if (result.condition) {
+        setCondition(result.condition as any);
+      }
+
+    } catch (error) {
+      console.error('AI analysis failed:', error);
+      alert('AI analysis failed. Please try filling in details manually.');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -582,68 +632,95 @@ export default function AddItemPage() {
               </div>
             )}
 
-            {/* Camera Preview */}
-            {isCameraActive && (
-              <div className="relative max-w-md mx-auto aspect-[3/2] w-full rounded-lg overflow-hidden bg-black">
-                <video
-                  ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  playsInline
-                  muted
-                  autoPlay
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  {!videoRef.current?.srcObject && (
-                    <div className="text-white text-sm">Initializing camera...</div>
+            {/* Simple Camera Section */}
+            <div className="w-full max-w-2xl mx-auto">
+              {/* Camera Card */}
+              <div className="bg-black rounded-2xl overflow-hidden">
+                {/* Camera View */}
+                <div className="aspect-[4/3] relative">
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-cover"
+                    playsInline
+                    muted
+                  />
+                  <canvas ref={canvasRef} className="hidden" />
+
+                  {/* Flash Effect */}
+                  {isFlashing && (
+                    <div className="absolute inset-0 bg-white z-50 animate-flash" />
                   )}
-                </div>
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center space-x-4 z-10">
-                  <Button 
-                    type="button"
-                    onClick={capturePhoto}
-                    className="bg-white text-black hover:bg-gray-100"
-                    disabled={!videoRef.current?.srcObject || needsUserGesture}
-                  >
-                    Capture
-                  </Button>
-                  <Button 
-                    type="button"
-                    variant="outline"
-                    onClick={stopCamera}
-                    className="bg-white/10 text-white hover:bg-white/20"
-                  >
-                    Cancel
-                  </Button>
+
+                  {/* Simple Capture Button */}
+                  <div className="absolute bottom-6 left-0 right-0 flex justify-center">
+                    <Button
+                      onClick={capturePhoto}
+                      className="w-16 h-16 rounded-full bg-white"
+                    >
+                      <div className="w-12 h-12 rounded-full border-4 border-black" />
+                    </Button>
+                  </div>
                 </div>
               </div>
-            )}
+
+              {/* Simple Thumbnails Strip */}
+              <div className="mt-4 flex gap-2 overflow-x-auto p-2">
+                {images.map((image, index) => (
+                  <div
+                    key={index}
+                    className="relative w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden"
+                  >
+                    <img
+                      src={image}
+                      alt={`Capture ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-1 right-1 h-5 w-5 rounded-full"
+                      onClick={() => removeImage(index)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* Captured Image Preview */}
             {capturedImage && (
-              <div className="relative max-w-md mx-auto aspect-[3/2] w-full rounded-lg overflow-hidden">
-                <img 
-                  src={capturedImage} 
-                  alt="Captured item" 
-                  className="w-full h-full object-contain bg-gray-100 dark:bg-gray-800"
-                />
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center space-x-4">
-                  <Button 
-                    type="button" 
-                    variant="secondary" 
-                    onClick={retakePhoto}
-                    className="bg-white text-black hover:bg-gray-100"
-                  >
-                    <RotateCcw className="mr-2 h-5 w-5" />
-                    Retake
-                  </Button>
-                  <Button 
-                    type="button" 
-                    onClick={usePhoto}
-                    className="bg-[#FF3B30] hover:bg-[#E6352B] text-white"
-                  >
-                    <Check className="mr-2 h-5 w-5" />
-                    Use Photo
-                  </Button>
+              <div className="relative w-full max-w-2xl mx-auto rounded-2xl overflow-hidden bg-gray-900 shadow-xl">
+                <div className="aspect-[4/3] relative">
+                  <img 
+                    src={capturedImage} 
+                    alt="Captured item" 
+                    className="w-full h-full object-contain"
+                  />
+                  
+                  {/* Controls Overlay */}
+                  <div className="absolute bottom-0 inset-x-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
+                    <div className="flex items-center justify-center gap-4">
+                      <Button 
+                        variant="outline"
+                        size="lg"
+                        onClick={retakePhoto}
+                        className="text-white border-white/20 hover:bg-white/20 transition-colors"
+                      >
+                        <RotateCcw className="mr-2 h-5 w-5" />
+                        Retake
+                      </Button>
+                      
+                      <Button 
+                        size="lg"
+                        onClick={usePhoto}
+                        className="bg-green-500 hover:bg-green-600 text-white transition-colors"
+                      >
+                        <Check className="mr-2 h-5 w-5" />
+                        Use Photo
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

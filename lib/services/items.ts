@@ -13,34 +13,39 @@ export async function createItem(item: Omit<Item, 'id' | 'created_at'>) {
 }
 
 export async function uploadItemImage(file: File, itemId: string, displayOrder: number) {
-  // Upload to Supabase Storage
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${itemId}_${Date.now()}.${fileExt}`;
-  const filePath = `item-images/${fileName}`;
+  try {
+    // Upload to Supabase Storage
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${itemId}_${Date.now()}.${fileExt}`
+    const filePath = `${itemId}/${fileName}`
 
-  const { error: uploadError } = await supabase.storage
-    .from('items')
-    .upload(filePath, file);
+    const { error: uploadError, data } = await supabase.storage
+      .from('items')
+      .upload(filePath, file)
 
-  if (uploadError) throw uploadError;
+    if (uploadError) throw uploadError
 
-  // Get public URL
-  const { data: { publicUrl } } = supabase.storage
-    .from('items')
-    .getPublicUrl(filePath);
+    // Get the public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('items')
+      .getPublicUrl(filePath)
 
-  // Create record in item_images table
-  const { error: dbError } = await supabase
-    .from('item_images')
-    .insert([{
-      item_id: itemId,
-      image_url: publicUrl,
-      display_order: displayOrder
-    }]);
+    // Create record in item_images table
+    const { error: dbError } = await supabase
+      .from('item_images')
+      .insert({
+        item_id: itemId,
+        image_url: filePath,
+        display_order: displayOrder
+      })
 
-  if (dbError) throw dbError;
+    if (dbError) throw dbError
 
-  return publicUrl;
+    return publicUrl
+  } catch (error) {
+    console.error('Error in uploadItemImage:', error)
+    throw error
+  }
 }
 
 export async function getItems() {

@@ -60,44 +60,50 @@ export default function POSPage() {
           <CardContent>
             <div className="space-y-4 max-h-[400px] overflow-y-auto">
               {items.map((item) => (
-                <div key={item.id} className="flex items-center space-x-4 py-4 border-b">
-                  <div className="relative w-16 h-16 rounded-md overflow-hidden">
-                    <Image
-                      src={item.image}
-                      alt={item.name}
-                      layout="fill"
-                      objectFit="cover"
+                <div key={item.id} className="flex items-center space-x-4 py-2 border-b">
+                  <div className="w-16 h-16 flex-shrink-0 relative rounded-md overflow-hidden">
+                    <img
+                      src={item.image_url || '/placeholder.svg'}
+                      alt={item.title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = '/placeholder.svg';
+                      }}
                     />
                   </div>
                   <div className="flex-grow">
-                    <h3 className="text-lg font-medium">{item.name}</h3>
-                    <p className="text-sm text-gray-500">£{item.price.toFixed(2)}</p>
+                    <h3 className="font-medium">{item.title}</h3>
+                    <div className="text-sm text-gray-500 space-x-1">
+                      <span>{item.category}</span>
+                      {item.size && <span>• {item.size}</span>}
+                    </div>
+                    <div className="text-sm font-semibold">£{item.price.toFixed(2)}</div>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Button
                       variant="outline"
-                      size="icon"
-                      onClick={() => updateQuantity(item.id, -1)}
+                      size="sm"
+                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      disabled={item.quantity <= 1}
                     >
-                      <Minus className="h-4 w-4" />
+                      -
                     </Button>
                     <span className="w-8 text-center">{item.quantity}</span>
                     <Button
                       variant="outline"
-                      size="icon"
-                      onClick={() => updateQuantity(item.id, 1)}
+                      size="sm"
+                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
                     >
-                      <Plus className="h-4 w-4" />
+                      +
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => removeItem(item.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeItem(item.id)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
                 </div>
               ))}
             </div>
