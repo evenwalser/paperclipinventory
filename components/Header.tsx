@@ -19,6 +19,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { ASSETS } from '@/lib/constants'
+import Image from 'next/image'
 
 interface Notification {
   id: string
@@ -61,7 +63,7 @@ export function Header() {
 
   return (
     <header className="bg-gray-900 border-b border-gray-800 p-4 flex justify-between items-center">
-      <h1 className="text-2xl font-bold text-white"></h1>
+      <div></div>
       <div className="flex items-center space-x-4">
         <Popover>
           <PopoverTrigger asChild>

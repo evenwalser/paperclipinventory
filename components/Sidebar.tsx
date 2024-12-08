@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { LayoutDashboard, Package, PoundSterling, Bell, Settings, LogOut } from 'lucide-react'
 import Image from 'next/image'
+import { ASSETS } from '@/lib/constants'
 
 const sidebarItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -21,18 +22,18 @@ export function Sidebar() {
 
   return (
     <div className="flex flex-col h-full bg-gray-900 text-white w-64">
-      <div className="p-4 flex items-center">
-        <Image
-          src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/paperclip_logo_red@1x.jpg-t3B9TdkGvq1AYhUm9oz2nXTQvDf1IM.png"
+      <div className="p-6">
+        <Image 
+          src={ASSETS.LOGO}
           alt="Paperclip Logo"
-          width={180}
-          height={36}
+          width={200}
+          height={67}
           priority
-          className="object-contain"
+          className="filter-none"
         />
       </div>
       <ScrollArea className="flex-1">
-        <nav className="space-y-2 p-2 pt-16">
+        <nav className="space-y-2 p-2 pt-8">
           {sidebarItems.map((item) => (
             <Link key={item.name} href={item.href}>
               <Button
