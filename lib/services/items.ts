@@ -48,21 +48,36 @@ export async function uploadItemImage(file: File, itemId: string, displayOrder: 
   }
 }
 
-export async function getItems() {
-  const { data: items, error: itemsError } = await supabase
-    .from('items')
-    .select(`
-      *,
-      item_images (
-        image_url,
-        display_order
-      )
-    `)
-    .order('created_at', { ascending: false });
+export async function getItems(page: number = 1, itemsPerPage: number = 9) {
+  const startIndex = (page - 1) * itemsPerPage;
+  
+  // Fetch count and items in parallel
+  const [countResponse, itemsResponse] = await Promise.all([
+    supabase
+      .from('items')
+      .select('*', { count: 'exact', head: true }),
+    
+    supabase
+      .from('items')
+      .select(`
+        *,
+        item_images!inner (
+          image_url,
+          display_order
+        )
+      `)
+      .order('created_at', { ascending: false })
+      .range(startIndex, startIndex + itemsPerPage - 1)
+  ]);
 
-  if (itemsError) throw itemsError;
+  if (countResponse.error) throw countResponse.error;
+  if (itemsResponse.error) throw itemsResponse.error;
 
-  return items;
+  return {
+    items: itemsResponse.data || [],
+    totalItems: countResponse.count || 0,
+    totalPages: Math.ceil((countResponse.count || 0) / itemsPerPage)
+  };
 }
 
 export async function getItem(id: number) {

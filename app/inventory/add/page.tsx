@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation'
+import { CategorySelectorV2 } from '@/components/CategorySelectorV2'
 
 // Define our view states
 type ViewState = 'initial' | 'camera' | 'fileSelect' | 'review' | 'details';
@@ -88,6 +89,7 @@ export default function AddItemPage() {
   const [listOnPaperclip, setListOnPaperclip] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('')
 
   // Camera handlers
   const startCamera = async () => {
@@ -332,6 +334,10 @@ export default function AddItemPage() {
       setIsSaving(false);
     }
   };
+
+  const handleCategoryChange = (category: string) => {
+    setSelectedCategory(category)
+  }
 
   return (
     <div className="container mx-auto px-4 py-6">

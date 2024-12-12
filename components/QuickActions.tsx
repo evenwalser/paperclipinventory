@@ -1,15 +1,37 @@
-<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 p-6 bg-gray-800 rounded-lg">
-  <button className="w-full p-4 flex flex-col items-center justify-center space-y-2 bg-gray-700 hover:bg-gray-600 transition-colors rounded-md">
-    <span>Button 1</span>
-  </button>
-  <button className="w-full p-4 flex flex-col items-center justify-center space-y-2 bg-gray-700 hover:bg-gray-600 transition-colors rounded-md">
-    <span>Button 2</span>
-  </button>
-  <button className="w-full p-4 flex flex-col items-center justify-center space-y-2 bg-gray-700 hover:bg-gray-600 transition-colors rounded-md">
-    <span>Button 3</span>
-  </button>
-  <button className="w-full p-4 flex flex-col items-center justify-center space-y-2 bg-gray-700 hover:bg-gray-600 transition-colors rounded-md">
-    <span>Button 4</span>
-  </button>
-</div>
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PlusCircle, ShoppingCart, RotateCcw } from "lucide-react"
+import Link from "next/link"
+
+export function QuickActions() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Quick Actions</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-4">
+          <Link href="/inventory/add">
+            <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center space-y-2">
+              <PlusCircle className="h-6 w-6" />
+              <span>Add New Item</span>
+            </Button>
+          </Link>
+          <Link href="/pos">
+            <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center space-y-2">
+              <ShoppingCart className="h-6 w-6" />
+              <span>New Sale</span>
+            </Button>
+          </Link>
+          <Link href="/inventory">
+            <Button variant="outline" className="w-full h-24 flex flex-col items-center justify-center space-y-2">
+              <RotateCcw className="h-6 w-6" />
+              <span>Process Return</span>
+            </Button>
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 

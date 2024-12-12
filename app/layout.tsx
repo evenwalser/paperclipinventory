@@ -4,6 +4,8 @@ import { Sidebar } from '@/components/Sidebar'
 import { Header } from '@/components/Header'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { CartProvider } from './contexts/CartContext'
+import { ASSETS } from '@/lib/constants'
+import Image from 'next/image'
 
 const inter = Inter({ subsets: ['latin'] })
 
